@@ -16,6 +16,7 @@
     "js-sha3": "^0.8.0",
     "openzeppelin-solidity": "git://github.com:OpenZeppelin/openzeppelin-solidity.git#2f9ae97",
     "truffle": "^5.1.0",
-    "truffle-flattener": "^1.4.2"
+    "truffle-flattener": "^1.4.2",
+    "minimist": ">=0.2.1"
   }
 }
