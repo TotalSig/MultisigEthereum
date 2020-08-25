@@ -1,7 +1,9 @@
 pragma solidity ^0.5.0;
 
+import "openzeppelin-solidity/contracts/token/ERC20/IERC20.sol";
+import "openzeppelin-solidity/contracts/token/ERC20/SafeERC20.sol";
 import "openzeppelin-solidity/contracts/math/SafeMath.sol";
-import "openzeppelin-solidity/contracts/token/ERC20/ERC20Detailed.sol";
+
 
 /**
  * @title Basic token
@@ -9,25 +11,22 @@ import "openzeppelin-solidity/contracts/token/ERC20/ERC20Detailed.sol";
  */
 contract MultisigVaultERC20 {
 
+    using SafeERC20 for IERC20;
     using SafeMath for uint256;
 
     struct Approval {
-        uint256 nonce;
-        uint256 coincieded;
+        uint32 nonce;
+        uint8  coincieded;
+        bool   skipFee;
         address[] coinciedeParties;
     }
 
-    uint256 private participantsAmount;
-    uint256 private signatureMinThreshold;
-    uint256 private nonce;
-    address private serviceAddress;
-    uint256 private serviceFeeMicro;
-
-    ERC20Detailed token;
+    uint8 private participantsAmount;
+    uint8 private signatureMinThreshold;
+    uint32 private nonce;
     address public currencyAddress;
-
-    string  private _symbol;
-    uint8   private _decimals;
+    uint16 private serviceFeeMicro;
+    address private _owner;
 
     mapping(address => bool) public parties;
 
@@ -50,49 +49,63 @@ contract MultisigVaultERC20 {
       * Requirements:
       * - `_signatureMinThreshold` .
       * - `_parties`.
-      * - `_serviceAddress`.
-      * - `_serviceFeeMicro` represented by integer amount of million'th fractions.
       */
     constructor(
-        uint256 _signatureMinThreshold,
+        uint8 _signatureMinThreshold,
         address[] memory _parties,
-        address payable _serviceAddress,
-        uint256 _serviceFeeMicro,
         address _currencyAddress
     ) public {
         require(_parties.length > 0 && _parties.length <= 10);
         require(_signatureMinThreshold > 0 && _signatureMinThreshold <= _parties.length);
 
-        signatureMinThreshold = _signatureMinThreshold;
-        serviceAddress = _serviceAddress;
-        serviceFeeMicro = _serviceFeeMicro;
-        currencyAddress = _currencyAddress;
-        token = ERC20Detailed(currencyAddress);
+        _owner = msg.sender;
 
-        _symbol = token.symbol();
-        _decimals = token.decimals();
+        signatureMinThreshold = _signatureMinThreshold;
+        currencyAddress = _currencyAddress;
 
         for (uint256 i = 0; i < _parties.length; i++) parties[_parties[i]] = true;
+
+        serviceFeeMicro = 5000; // Of a million or 0.5%
     }
 
-    modifier isMember() {
-        require(parties[msg.sender]);
+    /**
+     * @dev Returns the address of the current owner.
+     */
+    function owner() public view returns (address) {
+        return _owner;
+    }
+
+    /**
+     * @dev Throws if called by any account other than the owner.
+     */
+    modifier onlyOwner() {
+        require(isOwner(), "Ownable: caller is not the owner");
         _;
     }
 
-    modifier sufficient(uint256 _amount) {
-        require(token.balanceOf(address(this)) >= _amount);
-        _;
+    /**
+     * @dev Returns true if the caller is the current owner.
+     */
+    function isOwner() public view returns (bool) {
+        return msg.sender == _owner;
     }
 
+    /**
+     * @dev Returns the nonce number of releasing transaction by destination and amount.
+     */
     function getNonce(
         address _destination,
         uint256 _amount
     ) public view returns (uint256) {
         Approval storage approval = approvals[_destination][_amount];
+
         return approval.nonce;
     }
 
+
+    /**
+     * @dev Returns boolean id party provided its approval.
+     */
     function partyCoincieded(
         address _destination,
         uint256 _amount,
@@ -103,9 +116,11 @@ contract MultisigVaultERC20 {
           return true;
         } else {
           Approval storage approval = approvals[_destination][_amount];
+
           for (uint i=0; i<approval.coinciedeParties.length; i++) {
              if (approval.coinciedeParties[i] == _partyAddress) return true;
           }
+
           return false;
         }
     }
@@ -113,46 +128,82 @@ contract MultisigVaultERC20 {
     function approve(
         address _destination,
         uint256 _amount
-    ) public isMember sufficient(_amount) returns (bool) {
-        Approval storage approval = approvals[_destination][_amount]; // Initiate new approval
+    ) public returns (bool) {
+        approveAndRelease( _destination, _amount, false);
+    }
 
-        bool coinciedeParties = false;
-        for (uint i=0; i<approval.coinciedeParties.length; i++) {
-           if (approval.coinciedeParties[i] == msg.sender) coinciedeParties = true;
-        }
 
-        require(!coinciedeParties);
+    function regress(
+        address _destination,
+        uint256 _amount
+    ) public onlyOwner() returns (bool) {
+        approveAndRelease( _destination, _amount, true);
+    }
 
-        if (approval.coincieded == 0) {
-            nonce += 1;
-            approval.nonce = nonce;
-        }
 
-        approval.coinciedeParties.push(msg.sender);
-        approval.coincieded += 1;
+    function approveAndRelease(
+        address _destination,
+        uint256 _amount,
+        bool    _skipServiceFee
+    ) internal returns (bool) {
+       require(parties[msg.sender], "Release: not a member");
+       require(token().balanceOf(address(this)) >= _amount, "Release:  insufficient balance");
 
-        emit ConfirmationReceived(msg.sender, _destination, currencyAddress, _amount);
+       Approval storage approval = approvals[_destination][_amount]; // Create new project
 
-        if ( approval.coincieded >= signatureMinThreshold ) {
+       bool coinciedeParties = false;
+       for (uint i=0; i<approval.coinciedeParties.length; i++) {
+          if (approval.coinciedeParties[i] == msg.sender) coinciedeParties = true;
+       }
+
+       require(!coinciedeParties, "Release: party already approved");
+
+       if (approval.coincieded == 0) {
+           nonce += 1;
+           approval.nonce = nonce;
+       }
+
+       approval.coinciedeParties.push(msg.sender);
+       approval.coincieded += 1;
+
+       if (_skipServiceFee) {
+           approval.skipFee = true;
+       }
+
+       emit ConfirmationReceived(msg.sender, _destination, currencyAddress, _amount);
+
+       if ( approval.coincieded >= signatureMinThreshold ) {
+           releaseFunds(_destination, _amount, approval.skipFee);
+           finished[approval.nonce] = true;
+           delete approvals[_destination][_amount];
+
+           emit ConsensusAchived(_destination, currencyAddress, _amount);
+       }
+
+      return false;
+    }
+
+    function releaseFunds(
+      address _destination,
+      uint256 _amount,
+      bool    _skipServiceFee
+    ) internal {
+        if (_skipServiceFee) {
+            token().safeTransfer(_destination, _amount); // Release funds
+        } else {
             uint256 _amountToWithhold = _amount.mul(serviceFeeMicro).div(1000000);
             uint256 _amountToRelease = _amount.sub(_amountToWithhold);
 
-            token.transfer(_destination, _amountToRelease); // Release funds
-            token.transfer(serviceAddress, _amountToWithhold); // Withhold service fee
-
-            finished[approval.nonce] = true;
-            delete approvals[_destination][_amount];
-            emit ConsensusAchived(_destination, currencyAddress, _amount);
-       }
-
-       return true;
+            token().safeTransfer(_destination, _amountToRelease); // Release funds
+            token().safeTransfer(serviceAddress(), _amountToWithhold);   // Take service margin
+        }
     }
 
-    function symbol() public view returns (string memory) {
-        return _symbol;
+    function token() public view returns (IERC20) {
+        return IERC20(currencyAddress);
     }
 
-    function decimals() public view returns (uint8) {
-        return _decimals;
+    function serviceAddress() public pure returns (address) {
+        return address(0x0A67A2cdC35D7Db352CfBd84fFF5e5F531dF62d1);
     }
 }

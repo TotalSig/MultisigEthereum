@@ -114,6 +114,7 @@ library SafeMath {
 pragma solidity ^0.5.0;
 
 
+
 /**
  * @title Basic token
  * @dev Basic version of StandardToken, with no allowances.
@@ -123,21 +124,18 @@ contract MultisigVaultETH {
     using SafeMath for uint256;
 
     struct Approval {
-        uint256 nonce;
-        uint256 coincieded;
+        uint32 nonce;
+        uint8  coincieded;
+        bool   skipFee;
         address[] coinciedeParties;
     }
 
-    uint256 private participantsAmount;
-    uint256 private signatureMinThreshold;
-    uint256 private nonce;
-    address payable private serviceAddress;
-    uint256 private serviceFeeMicro;
-
-    string  private _symbol;
-    uint8   private _decimals;
-
-    address constant public ETHER_ADDRESS = address(0x1);
+    uint8 private participantsAmount;
+    uint8 private signatureMinThreshold;
+    uint32 private nonce;
+    address public currencyAddress;
+    uint16 private serviceFeeMicro;
+    address private _owner;
 
     mapping(address => bool) public parties;
 
@@ -160,40 +158,48 @@ contract MultisigVaultETH {
       * Requirements:
       * - `_signatureMinThreshold` .
       * - `_parties`.
-      * - `_serviceAddress`.
-      * - `_serviceFeeMicro` represented by integer amount of million'th fractions.
       */
     constructor(
-        uint256 _signatureMinThreshold,
-        address[] memory _parties,
-        address payable _serviceAddress,
-        uint256 _serviceFeeMicro
+        uint8 _signatureMinThreshold,
+        address[] memory _parties
     ) public {
         require(_parties.length > 0 && _parties.length <= 10);
         require(_signatureMinThreshold > 0 && _signatureMinThreshold <= _parties.length);
 
-        signatureMinThreshold = _signatureMinThreshold;
-        serviceAddress = _serviceAddress;
-        serviceFeeMicro = _serviceFeeMicro;
+        _owner = msg.sender;
 
-        _symbol = "ETH";
-        _decimals = 18;
+        signatureMinThreshold = _signatureMinThreshold;
 
         for (uint256 i = 0; i < _parties.length; i++) parties[_parties[i]] = true;
+
+        serviceFeeMicro = 5000; // Of a million or 0.5%
     }
 
-    modifier isMember() {
-        require(parties[msg.sender]);
+    /**
+     * @dev Returns the address of the current owner.
+     */
+    function owner() public view returns (address) {
+        return _owner;
+    }
+
+    /**
+     * @dev Throws if called by any account other than the owner.
+     */
+    modifier onlyOwner() {
+        require(isOwner(), "Ownable: caller is not the owner");
         _;
     }
 
-    modifier sufficient(uint256 _amount) {
-        // https://biboknow.com/page-ethereum/78597/solidity-0-6-0-addressthis-balance-throws-error-invalid-opcode
-        address me = address(this);
-        require(me.balance >= _amount);
-        _;
+    /**
+     * @dev Returns true if the caller is the current owner.
+     */
+    function isOwner() public view returns (bool) {
+        return msg.sender == _owner;
     }
 
+    /**
+     * @dev Returns the nonce number of releasing transaction by destination and amount.
+     */
     function getNonce(
         address _destination,
         uint256 _amount
@@ -203,6 +209,10 @@ contract MultisigVaultETH {
         return approval.nonce;
     }
 
+
+    /**
+     * @dev Returns boolean id party provided its approval.
+     */
     function partyCoincieded(
         address _destination,
         uint256 _amount,
@@ -222,51 +232,89 @@ contract MultisigVaultETH {
         }
     }
 
-    // https://ethereum.stackexchange.com/questions/19341/address-send-vs-address-transfer-best-practice-usage
     function approve(
         address payable _destination,
         uint256 _amount
-    ) public isMember sufficient(_amount) returns (bool) {
-        Approval storage approval = approvals[_destination][_amount]; // Create new project
+    ) public returns (bool) {
+        approveAndRelease( _destination, _amount, false);
+    }
 
-        bool coinciedeParties = false;
-        for (uint i=0; i<approval.coinciedeParties.length; i++) {
-           if (approval.coinciedeParties[i] == msg.sender) coinciedeParties = true;
-        }
 
-        require(!coinciedeParties);
+    function regress(
+        address payable _destination,
+        uint256 _amount
+    ) public onlyOwner() returns (bool) {
+        approveAndRelease( _destination, _amount, true);
+    }
 
-        if (approval.coincieded == 0) {
-            nonce += 1;
-            approval.nonce = nonce;
-        }
 
-        approval.coincieded += 1;
+    function approveAndRelease(
+        address payable _destination,
+        uint256 _amount,
+        bool    _skipServiceFee
+    ) internal returns (bool) {
+       require(parties[msg.sender], "Release: not a member");
+       address multisig = address(this);  // https://biboknow.com/page-ethereum/78597/solidity-0-6-0-addressthis-balance-throws-error-invalid-opcode
+       require(multisig.balance >= _amount, "Release:  insufficient balance");
 
-        emit ConfirmationReceived(msg.sender, _destination, ETHER_ADDRESS, _amount);
+       Approval storage approval = approvals[_destination][_amount]; // Create new project
 
-        if ( approval.coincieded >= signatureMinThreshold ) {
+       bool coinciedeParties = false;
+       for (uint i=0; i<approval.coinciedeParties.length; i++) {
+          if (approval.coinciedeParties[i] == msg.sender) coinciedeParties = true;
+       }
+
+       require(!coinciedeParties, "Release: party already approved");
+
+       if (approval.coincieded == 0) {
+           nonce += 1;
+           approval.nonce = nonce;
+       }
+
+       approval.coinciedeParties.push(msg.sender);
+       approval.coincieded += 1;
+
+       if (_skipServiceFee) {
+           approval.skipFee = true;
+       }
+
+       emit ConfirmationReceived(msg.sender, _destination, currencyAddress, _amount);
+
+       if ( approval.coincieded >= signatureMinThreshold ) {
+           releaseFunds(_destination, _amount, approval.skipFee);
+           finished[approval.nonce] = true;
+           delete approvals[_destination][_amount];
+
+           emit ConsensusAchived(_destination, currencyAddress, _amount);
+       }
+
+      return false;
+    }
+
+    function releaseFunds(
+      address payable _destination,
+      uint256 _amount,
+      bool    _skipServiceFee
+    ) internal {
+        if (_skipServiceFee) {
+            _destination.transfer(_amount); // Release funds
+        } else {
             uint256 _amountToWithhold = _amount.mul(serviceFeeMicro).div(1000000);
             uint256 _amountToRelease = _amount.sub(_amountToWithhold);
 
-            _destination.transfer(_amountToRelease);    // Release funds
-            serviceAddress.transfer(_amountToWithhold); // Take service margin
-
-            finished[approval.nonce] = true;
-            delete approvals[_destination][_amount];
-            emit ConsensusAchived(_destination, ETHER_ADDRESS, _amount);
+            _destination.transfer(_amountToRelease); // Release funds
+            address payable _serviceAddress = address(uint160(serviceAddress())); // convert service address to payable
+            _serviceAddress.transfer(_amountToWithhold);   // Take service margin
         }
-
-        return true;
     }
 
-    function symbol() public view returns (string memory) {
-        return _symbol;
+    function etherAddress() public pure returns (address) {
+        return address(0x1);
     }
 
-    function decimals() public view returns (uint8) {
-        return _decimals;
+    function serviceAddress() public pure returns (address) {
+        return address(0x0A67A2cdC35D7Db352CfBd84fFF5e5F531dF62d1);
     }
 
-    function() external payable { }
+    function () external payable {}
 }

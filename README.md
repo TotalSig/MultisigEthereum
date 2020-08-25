@@ -22,6 +22,7 @@
 
 * To flatten contract
 
+    node_modules/.bin/truffle-flattener contracts/MultisigVault.sol > flattened_contracts/MultisigVault.sol
     node_modules/.bin/truffle-flattener contracts/MultisigVaultETH.sol > flattened_contracts/MultisigVaultETH.sol
     node_modules/.bin/truffle-flattener contracts/MultisigVaultERC20.sol > flattened_contracts/MultisigVaultERC20.sol
 
