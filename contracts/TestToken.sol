@@ -9,6 +9,6 @@ import "openzeppelin-solidity/contracts/token/ERC20/ERC20Mintable.sol";
  * @title Basic token
  * @dev Basic version of StandardToken, with no allowances.
  */
-contract EursTestToken is ERC20Detailed, Ownable, ERC20Mintable {
-    constructor() public ERC20Detailed("EursTestToken", "EURS", 2) {}
+contract TestToken is ERC20Detailed, Ownable, ERC20Mintable {
+    constructor() public ERC20Detailed("TestToken", "EURS", 2) {}
 }
