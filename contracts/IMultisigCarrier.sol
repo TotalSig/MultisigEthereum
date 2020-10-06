@@ -6,6 +6,10 @@ pragma solidity ^0.5.0;
  */
 contract IMultisigCarrier {
 
+    function vaultParties(
+        address vaultAddress
+    ) public view returns (address[] memory);
+
     function approveFrom(
         address caller,
         address payable destination,

@@ -9,6 +9,10 @@ pragma solidity ^0.5.0;
  */
 contract IMultisigCarrier {
 
+    function vaultParties(
+        address vaultAddress
+    ) public view returns (address[] memory);
+
     function approveFrom(
         address caller,
         address payable destination,
@@ -31,7 +35,12 @@ contract MultisigVault {
         _carrier = msg.sender;
     }
 
-    function owner() public view returns (address) {
+    function parties() public view returns (address[] memory) {
+        IMultisigCarrier multisigCarrier = IMultisigCarrier(_carrier);
+        return multisigCarrier.vaultParties(address(this));
+    }
+
+    function carrier() public view returns (address) {
         return _carrier;
     }
 
@@ -45,7 +54,7 @@ contract MultisigVault {
     }
 
     function external_call(address destination, uint value, bytes memory data) public returns (bool) {
-        require(msg.sender == _carrier, "Ownable: caller is not the owner");
+        require(msg.sender == _carrier, "Carriable: caller is not the carrier");
 
         bool result;
         assembly {
@@ -222,6 +231,14 @@ contract MultisigCarrier {
     }
 
 
+    function vaultParties(
+        address vaultAddress
+    ) public view returns (address[] memory) {
+        VaultInfo storage vaultInfo = _vaultInfos[vaultAddress];
+        return vaultInfo.parties;
+    }
+
+
     function approve(
         address payable vaultAddress,
         address payable destination,
@@ -344,9 +361,5 @@ contract MultisigCarrier {
 
     function etherAddress() public pure returns (address) {
         return address(0x0);
-    }
-
-    function serviceAddress() public pure returns (address) {
-        return address(0x0A67A2cdC35D7Db352CfBd84fFF5e5F531dF62d1);
     }
 }

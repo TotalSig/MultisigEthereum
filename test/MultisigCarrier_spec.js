@@ -72,6 +72,23 @@ contract("multisigCarrier", accounts => {
             this.multisigCarrier.setVaultInfo(this.vaultAddress, signatureMinThreshold, parties, { from: this.tokenOwner })
           );
       });
+
+      it('can check involved parties', async function () {
+          const signatureMinThreshold = 2;
+          const parties = [this.party1, this.party2];
+
+          await this.multisigCarrier.setVaultInfo(this.vaultAddress, signatureMinThreshold, parties, { from: this.service });
+
+          const assignedParties1 = await this.multisigCarrier.vaultParties.call(this.vaultAddress);
+          assert.equal(assignedParties1[0], parties[0]);
+          assert.equal(assignedParties1[1], parties[1]);
+
+          this.multisigVault = await MultisigVault.at(this.vaultAddress);
+
+          const assignedParties2 = await this.multisigVault.parties.call();
+          assert.equal(assignedParties2[0], parties[0]);
+          assert.equal(assignedParties2[1], parties[1]);
+      });
     });
   });
 
@@ -81,8 +98,6 @@ contract("multisigCarrier", accounts => {
       await this.TestToken.mint(this.party1, this.amount, { from: this.tokenOwner });
 
       const tx = await this.multisigCarrier.createMultisigVault({ from: this.service });
-      assert.equal(tx.receipt.status, true);
-
       const vaultAddress = tx.logs[0].args[0];
       const signatureMinThreshold = 2;
       const parties = [this.party1, this.party2];

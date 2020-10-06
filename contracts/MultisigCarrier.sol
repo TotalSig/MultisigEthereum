@@ -149,6 +149,14 @@ contract MultisigCarrier {
     }
 
 
+    function vaultParties(
+        address vaultAddress
+    ) public view returns (address[] memory) {
+        VaultInfo storage vaultInfo = _vaultInfos[vaultAddress];
+        return vaultInfo.parties;
+    }
+
+
     function approve(
         address payable vaultAddress,
         address payable destination,
@@ -271,9 +279,5 @@ contract MultisigCarrier {
 
     function etherAddress() public pure returns (address) {
         return address(0x0);
-    }
-
-    function serviceAddress() public pure returns (address) {
-        return address(0x0A67A2cdC35D7Db352CfBd84fFF5e5F531dF62d1);
     }
 }
