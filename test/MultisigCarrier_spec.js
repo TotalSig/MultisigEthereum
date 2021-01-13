@@ -15,6 +15,7 @@ contract("multisigCarrier", accounts => {
 
     this.party1 = accounts[1];
     this.party2 = accounts[2];
+    this.party3 = accounts[3];
 
     this.tokenOwner = accounts[5];
 
@@ -61,6 +62,19 @@ contract("multisigCarrier", accounts => {
 
           await assertRevert(
             this.multisigCarrier.setVaultInfo(this.vaultAddress, signatureMinThreshold, parties, { from: this.party1 })
+          );
+      });
+
+      it('should set vault info 2 times', async function () {
+          const signatureMinThreshold = 2;
+          const parties = [this.party1, this.party2];
+
+          const tx2 = await this.multisigCarrier.setVaultInfo(this.vaultAddress, signatureMinThreshold, parties, { from: this.service });
+          assert.equal(tx2.receipt.status, true);
+
+          const parties2 = [this.party1, this.party3];
+          await assertRevert(
+            this.multisigCarrier.setVaultInfo(this.vaultAddress, signatureMinThreshold, parties2, { from: this.service })
           );
       });
 

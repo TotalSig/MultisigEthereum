@@ -142,6 +142,7 @@ contract MultisigCarrier {
         require(signatureMinThreshold <= parties.length, "Min signatures mismatches parties array");
 
         VaultInfo storage vaultInfo = _vaultInfos[vaultAddress];
+        require(vaultInfo.signatureMinThreshold == 0, "Vault initialized already");
         vaultInfo.signatureMinThreshold = signatureMinThreshold;
         vaultInfo.parties = parties;
 

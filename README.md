@@ -23,7 +23,7 @@
 * To flatten contract
 
     node_modules/.bin/truffle-flattener contracts/MultisigCarrier.sol > flattened_contracts/MultisigCarrier.sol
-
+    node_modules/.bin/truffle-flattener contracts/MultisigVault.sol > flattened_contracts/MultisigVault.sol
 
 ## Tutorials and accompined materials
 
